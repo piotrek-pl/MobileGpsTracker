@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
+
 }
 
 android {
@@ -65,6 +66,8 @@ dependencies {
 
     // Dodane zależności do klienta MQTT
     implementation("com.hivemq:hivemq-mqtt-client:1.3.0")
+
+    implementation("com.google.android.gms:play-services-maps:18.1.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

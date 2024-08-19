@@ -1,40 +1,54 @@
 package com.example.gpstracker
 
 import android.os.Bundle
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.tooling.preview.Preview
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.MapView
+import com.google.android.gms.maps.OnMapReadyCallback
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MarkerOptions
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import com.hivemq.client.mqtt.mqtt3.message.connect.connack.Mqtt3ConnAck
-import com.hivemq.client.mqtt.mqtt3.Mqtt3Client
 import com.hivemq.client.mqtt.mqtt3.message.auth.Mqtt3SimpleAuth
 
-
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
     private lateinit var mqttClient: Mqtt3AsyncClient
+    private lateinit var mapView: MapView
+    private lateinit var googleMap: GoogleMap
+    private lateinit var loginLayout: LinearLayout
+    private lateinit var usernameField: EditText
+    private lateinit var passwordField: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme {
-                Surface {
-                    LoginScreen { username, password ->
-                        connectToMqttBroker(username, password)
-                    }
-                }
-            }
+        setContentView(R.layout.activity_main)
+
+        loginLayout = findViewById(R.id.loginLayout)
+        mapView = findViewById(R.id.mapView)
+        usernameField = findViewById(R.id.usernameField)
+        passwordField = findViewById(R.id.passwordField)
+
+        // Ustawienie domyślnych wartości
+        usernameField.setText("sub1")
+        passwordField.setText("a4Yg3u8W")
+
+        val loginButton = findViewById<Button>(R.id.loginButton)
+
+        loginButton.setOnClickListener {
+            val username = usernameField.text.toString()
+            val password = passwordField.text.toString()
+            connectToMqttBroker(username, password)
         }
     }
 
     private fun connectToMqttBroker(username: String, password: String) {
-        // Tworzenie klienta MQTT
         mqttClient = MqttClient.builder()
             .useMqttVersion3()
             .serverHost("51.20.193.191")
@@ -47,33 +61,62 @@ class MainActivity : ComponentActivity() {
             )
             .buildAsync()
 
-        // Łączenie się z brokerem MQTT
         mqttClient.connect()
-            .whenComplete { connAck, throwable ->
+            .whenComplete { connAck: Mqtt3ConnAck?, throwable: Throwable? ->
                 if (throwable != null) {
-                    // Błąd połączenia
                     runOnUiThread {
                         Toast.makeText(this, "Connection failed: ${throwable.message}", Toast.LENGTH_LONG).show()
                     }
-                    throwable.printStackTrace()
                 } else {
-                    // Pomyślne połączenie
                     runOnUiThread {
-                        Toast.makeText(this, "Connected", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "Connected successfully!", Toast.LENGTH_SHORT).show()
+                        // Połączenie udane, przełącz widoki
+                        showMap()
                     }
-
-                    // Subskrypcja tematu
-                    mqttClient.subscribeWith()
-                        .topicFilter("example/topic")
-                        .callback { publish ->
-                            val payload = String(publish.payloadAsBytes)
-                            runOnUiThread {
-                                Toast.makeText(this, "Received: $payload", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                        .send()
                 }
             }
     }
-}
 
+    private fun showMap() {
+        loginLayout.visibility = LinearLayout.GONE
+        mapView.visibility = MapView.VISIBLE
+
+        mapView.onCreate(null)
+        mapView.getMapAsync(this)
+    }
+
+    override fun onMapReady(map: GoogleMap) {
+        googleMap = map
+        googleMap.addMarker(MarkerOptions().position(LatLng(0.0, 0.0)).title("Marker"))
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(0.0, 0.0), 2f))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::mapView.isInitialized) {
+            mapView.onResume()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (::mapView.isInitialized) {
+            mapView.onPause()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::mapView.isInitialized) {
+            mapView.onDestroy()
+        }
+        mqttClient.disconnect()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        if (::mapView.isInitialized) {
+            mapView.onLowMemory()
+        }
+    }
+}
