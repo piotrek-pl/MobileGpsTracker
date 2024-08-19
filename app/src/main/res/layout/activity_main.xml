@@ -43,4 +43,27 @@
         android:layout_height="match_parent"
         android:visibility="gone"/>
 
+    <!-- Przycisk do zmiany typu mapy -->
+    <Button
+        android:id="@+id/mapTypeButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Map Type"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentEnd="true"
+        android:layout_margin="8dp"
+        android:visibility="gone"/>
+
+    <!-- Tekst informacyjny -->
+    <TextView
+        android:id="@+id/messageTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="18sp"
+        android:textColor="@android:color/holo_red_dark"
+        android:layout_centerHorizontal="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginTop="120dp"
+        android:visibility="gone"/>
+
 </RelativeLayout>
