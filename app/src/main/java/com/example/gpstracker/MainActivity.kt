@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
     private lateinit var messageTextView: TextView
     private var marker: Marker? = null
 
-    private val connectionTimeout = 5 // Timeout in seconds
+    private val connectionTimeout = 5100 // Timeout in seconds
     private var lastMessageTime = System.currentTimeMillis()
 
     private var isDisconnected = false
@@ -152,7 +152,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
     private fun checkConnectionStatus() {
         val currentTime = System.currentTimeMillis()
-        if (isFirstMessageReceived && currentTime - lastMessageTime > connectionTimeout * 1000) {
+        if (isFirstMessageReceived && currentTime - lastMessageTime > connectionTimeout) {
             if (!isDisconnected) {
                 showDisconnectedMessage()
                 isDisconnected = true
@@ -184,7 +184,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
         googleMap.uiSettings.isMapToolbarEnabled = true
         googleMap.uiSettings.isZoomControlsEnabled = false // Wyłączenie przycisków zoom
         googleMap.uiSettings.isCompassEnabled = true
-        googleMap.uiSettings.isMyLocationButtonEnabled = true
+        googleMap.uiSettings.isMyLocationButtonEnabled = false
 
         // Sprawdzenie uprawnień do lokalizacji
         if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
