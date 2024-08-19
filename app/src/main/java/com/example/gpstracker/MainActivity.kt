@@ -1,6 +1,8 @@
 package com.example.gpstracker
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -11,11 +13,14 @@ import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.MapView
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import com.hivemq.client.mqtt.mqtt3.message.connect.connack.Mqtt3ConnAck
+import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
 import com.hivemq.client.mqtt.mqtt3.message.auth.Mqtt3SimpleAuth
+import java.nio.charset.StandardCharsets
 
 class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
@@ -25,6 +30,21 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
     private lateinit var loginLayout: LinearLayout
     private lateinit var usernameField: EditText
     private lateinit var passwordField: EditText
+    private var marker: Marker? = null
+
+    private val connectionTimeout = 5 // Timeout in seconds
+    private var lastMessageTime = System.currentTimeMillis()
+
+    private var isDisconnected = false
+    private var isFirstMessageReceived = false
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val checkConnectionRunnable = object : Runnable {
+        override fun run() {
+            checkConnectionStatus()
+            handler.postDelayed(this, 1000) // Check every second
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,6 +66,10 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
             val password = passwordField.text.toString()
             connectToMqttBroker(username, password)
         }
+
+        // MapView Initialization
+        mapView.onCreate(savedInstanceState) // Add this line to initialize MapView
+        mapView.getMapAsync(this)
     }
 
     private fun connectToMqttBroker(username: String, password: String) {
@@ -72,9 +96,55 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
                         Toast.makeText(this, "Connected successfully!", Toast.LENGTH_SHORT).show()
                         // Połączenie udane, przełącz widoki
                         showMap()
+                        subscribeToLocationTopic()
+                        handler.post(checkConnectionRunnable) // Start connection checking
                     }
                 }
             }
+    }
+
+    private fun subscribeToLocationTopic() {
+        val topic = "client1/gps/location"
+        mqttClient.subscribeWith()
+            .topicFilter(topic)
+            .callback { publish: Mqtt3Publish ->
+                val payload = String(publish.payloadAsBytes, StandardCharsets.UTF_8)
+                handleIncomingLocationData(payload)
+            }
+            .send()
+    }
+
+    private fun handleIncomingLocationData(payload: String) {
+        runOnUiThread {
+            val data = payload.split(",")
+
+            if (data.size >= 4) {
+                val latitude = data[2].toDoubleOrNull()
+                val longitude = data[3].toDoubleOrNull()
+
+                if (latitude != null && longitude != null) {
+                    lastMessageTime = System.currentTimeMillis() // Update last message time
+                    isFirstMessageReceived = true // First message received
+                    if (latitude == 99.0 && longitude == 99.0) {
+                        showUnknownLocationMessage()
+                    } else {
+                        updateMap(latitude, longitude)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkConnectionStatus() {
+        val currentTime = System.currentTimeMillis()
+        if (isFirstMessageReceived && currentTime - lastMessageTime > connectionTimeout * 1000) {
+            if (!isDisconnected) {
+                showDisconnectedMessage()
+                isDisconnected = true
+            }
+        } else {
+            isDisconnected = false
+        }
     }
 
     private fun showMap() {
@@ -87,8 +157,31 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
     override fun onMapReady(map: GoogleMap) {
         googleMap = map
-        googleMap.addMarker(MarkerOptions().position(LatLng(0.0, 0.0)).title("Marker"))
-        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(0.0, 0.0), 2f))
+
+        // Ustawienie domyślnej pozycji mapy
+        val initialPosition = LatLng(51.812859, 19.501045)  // Możesz zmienić na domyślną pozycję
+        googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(initialPosition, 14f))
+    }
+
+    // Funkcja do aktualizacji markera na mapie
+    private fun updateMap(lat: Double, lng: Double) {
+        val newPosition = LatLng(lat, lng)
+
+        if (marker == null) {
+            marker = googleMap.addMarker(MarkerOptions().position(newPosition))
+        } else {
+            marker?.position = newPosition
+        }
+
+        googleMap.moveCamera(CameraUpdateFactory.newLatLng(newPosition))
+    }
+
+    private fun showDisconnectedMessage() {
+        Toast.makeText(this, "Connection lost!", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showUnknownLocationMessage() {
+        Toast.makeText(this, "Unknown location!", Toast.LENGTH_LONG).show()
     }
 
     override fun onResume() {
@@ -111,6 +204,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
             mapView.onDestroy()
         }
         mqttClient.disconnect()
+        handler.removeCallbacks(checkConnectionRunnable) // Stop connection checking
     }
 
     override fun onLowMemory() {
