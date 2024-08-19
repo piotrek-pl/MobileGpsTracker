@@ -1,5 +1,7 @@
 package com.example.gpstracker
 
+import android.app.AlertDialog
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -67,8 +69,14 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
             connectToMqttBroker(username, password)
         }
 
+        // Obsługa kliknięcia przycisku zmiany typu mapy
+        val mapTypeButton = findViewById<Button>(R.id.mapTypeButton)
+        mapTypeButton.setOnClickListener {
+            showMapTypeDialog()
+        }
+
         // MapView Initialization
-        mapView.onCreate(savedInstanceState) // Add this line to initialize MapView
+        mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
     }
 
@@ -151,7 +159,10 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
         loginLayout.visibility = LinearLayout.GONE
         mapView.visibility = MapView.VISIBLE
 
-        mapView.onCreate(null)
+        // Pokaż przycisk zmiany typu mapy
+        val mapTypeButton = findViewById<Button>(R.id.mapTypeButton)
+        mapTypeButton.visibility = Button.VISIBLE
+
         mapView.getMapAsync(this)
     }
 
@@ -161,9 +172,48 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
         // Ustawienie domyślnej pozycji mapy
         val initialPosition = LatLng(51.812859, 19.501045)  // Możesz zmienić na domyślną pozycję
         googleMap.moveCamera(CameraUpdateFactory.newLatLngZoom(initialPosition, 14f))
+
+        // Włączenie przycisków do zmiany typu mapy i warstw
+        googleMap.uiSettings.isMapToolbarEnabled = true
+        googleMap.uiSettings.isZoomControlsEnabled = false // Wyłączenie przycisków zoom
+        googleMap.uiSettings.isCompassEnabled = true
+        googleMap.uiSettings.isMyLocationButtonEnabled = true
+
+        // Sprawdzenie uprawnień do lokalizacji
+        if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            googleMap.isMyLocationEnabled = true
+        } else {
+            // Poproś o uprawnienia, jeśli nie zostały przyznane
+            requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION), 1)
+        }
+
+        // Ustawienie początkowego markera
+        // googleMap.addMarker(MarkerOptions().position(initialPosition).title("Initial Position"))
     }
 
-    // Funkcja do aktualizacji markera na mapie
+    private fun showMapTypeDialog() {
+        val mapTypes = arrayOf("Normal", "Satellite", "Terrain", "Hybrid")
+        val selectedType = when (googleMap.mapType) {
+            GoogleMap.MAP_TYPE_SATELLITE -> 1
+            GoogleMap.MAP_TYPE_TERRAIN -> 2
+            GoogleMap.MAP_TYPE_HYBRID -> 3
+            else -> 0
+        }
+
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Select Map Type")
+        builder.setSingleChoiceItems(mapTypes, selectedType) { dialog, which ->
+            googleMap.mapType = when (which) {
+                1 -> GoogleMap.MAP_TYPE_SATELLITE
+                2 -> GoogleMap.MAP_TYPE_TERRAIN
+                3 -> GoogleMap.MAP_TYPE_HYBRID
+                else -> GoogleMap.MAP_TYPE_NORMAL
+            }
+            dialog.dismiss()
+        }
+        builder.create().show()
+    }
+
     private fun updateMap(lat: Double, lng: Double) {
         val newPosition = LatLng(lat, lng)
 
@@ -204,7 +254,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
             mapView.onDestroy()
         }
         mqttClient.disconnect()
-        handler.removeCallbacks(checkConnectionRunnable) // Stop connection checking
+        handler.removeCallbacks(checkConnectionRunnable)
     }
 
     override fun onLowMemory() {
