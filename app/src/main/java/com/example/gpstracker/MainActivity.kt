@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
     private lateinit var messageTextView: TextView
     private var marker: Marker? = null
 
-    private val connectionTimeout = 5100 // Timeout in seconds
+    private val connectionTimeout = 7000 // Timeout in seconds
     private var lastMessageTime = System.currentTimeMillis()
 
     private var isDisconnected = false
@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
             .buildAsync()
 
         mqttClient.connect()
-            .whenComplete { connAck: Mqtt3ConnAck?, throwable: Throwable? ->
+            .whenComplete { _: Mqtt3ConnAck?, throwable: Throwable? ->
                 if (throwable != null) {
                     runOnUiThread {
                         Toast.makeText(this, "Connection failed: ${throwable.message}", Toast.LENGTH_LONG).show()
@@ -134,13 +134,16 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
                 val longitude = data[3].toDoubleOrNull()
 
                 if (latitude != null && longitude != null) {
-                    lastMessageTime = System.currentTimeMillis() // Update last message time
-                    isFirstMessageReceived = true // First message received
+                    lastMessageTime = System.currentTimeMillis() // Zaktualizuj czas ostatniej wiadomości
+                    isFirstMessageReceived = true // Pierwsza wiadomość została odebrana
+
+                    // Ukryj komunikat "connection lost", jeśli przychodzi nowa lokalizacja
+                    hideMessage()
 
                     if (latitude == 99.0 && longitude == 99.0) {
                         showUnknownLocationMessage()
                     } else {
-                        hideMessage() // Hide any message if location is known
+                        hideMessage() // Ukryj jakikolwiek komunikat, jeśli lokalizacja jest znana
                         updateMap(latitude, longitude)
                     }
                 } else {
