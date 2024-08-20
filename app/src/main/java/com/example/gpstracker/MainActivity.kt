@@ -1,10 +1,16 @@
 package com.example.gpstracker
 
 import android.app.AlertDialog
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -36,7 +42,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
     private lateinit var messageTextView: TextView
     private var marker: Marker? = null
 
-    private val connectionTimeout = 7000 // Timeout in seconds
+    private val connectionTimeout = 6000 // Timeout in seconds
     private var lastMessageTime = System.currentTimeMillis()
 
     private var isDisconnected = false
@@ -49,6 +55,14 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
             handler.postDelayed(this, 1000) // Check every second
         }
     }
+
+    // Nowe zmienne klasy dla username i password
+    private lateinit var username: String
+    private lateinit var password: String
+
+    // Dodanie NetworkCallback do monitorowania zmian w stanie sieci
+    private lateinit var connectivityManager: ConnectivityManager
+    private lateinit var networkCallback: ConnectivityManager.NetworkCallback
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,8 +81,8 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
         val loginButton = findViewById<Button>(R.id.loginButton)
 
         loginButton.setOnClickListener {
-            val username = usernameField.text.toString()
-            val password = passwordField.text.toString()
+            username = usernameField.text.toString()
+            password = passwordField.text.toString()
             connectToMqttBroker(username, password)
         }
 
@@ -81,11 +95,33 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
         // MapView Initialization
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync(this)
+
+        // Inicjalizacja ConnectivityManager i NetworkCallback
+        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                super.onAvailable(network)
+                if (::mqttClient.isInitialized && !mqttClient.state.isConnected) {
+                    reconnectToMqttBroker()
+                }
+            }
+
+            override fun onLost(network: Network) {
+                super.onLost(network)
+                Toast.makeText(this@MainActivity, "Network connection lost", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // Rejestracja NetworkCallback
+        val networkRequest = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
     }
 
     private fun connectToMqttBroker(username: String, password: String) {
         mqttClient = MqttClient.builder()
-            .useMqttVersion3()
+            .useMqttVersion3()  // Użycie wersji MQTT 3.0
             .serverHost("51.20.193.191")
             .serverPort(1883)
             .simpleAuth(
@@ -94,14 +130,16 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
                     .password(password.toByteArray())
                     .build()
             )
-            .buildAsync()
+            .automaticReconnectWithDefaultConfig() // Automatyczne ponowne łączenie
+            .buildAsync()  // Tworzenie asynchronicznego klienta
 
         mqttClient.connect()
             .whenComplete { _: Mqtt3ConnAck?, throwable: Throwable? ->
                 if (throwable != null) {
                     runOnUiThread {
-                        Toast.makeText(this, "Connection failed: ${throwable.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "Connection failed: ${throwable.message}. Retrying...", Toast.LENGTH_LONG).show()
                     }
+                    retryConnection(username, password)
                 } else {
                     runOnUiThread {
                         Toast.makeText(this, "Connected successfully!", Toast.LENGTH_SHORT).show()
@@ -112,6 +150,33 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
                     }
                 }
             }
+    }
+
+    private fun reconnectToMqttBroker() {
+        mqttClient.connect()
+            .whenComplete { _: Mqtt3ConnAck?, throwable: Throwable? ->
+                if (throwable != null) {
+                    runOnUiThread {
+                        Toast.makeText(this, "Reconnection failed: ${throwable.message}", Toast.LENGTH_LONG).show()
+                    }
+                    retryConnection(username, password) // Użycie zmiennych klasy
+                } else {
+                    runOnUiThread {
+                        Toast.makeText(this, "Reconnected successfully!", Toast.LENGTH_SHORT).show()
+                        // Połączenie udane, przełącz widoki
+                        showMap()
+                        subscribeToLocationTopic()
+                        handler.post(checkConnectionRunnable) // Start connection checking
+                    }
+                }
+            }
+    }
+
+    // Metoda do ponownej próby połączenia w przypadku błędu
+    private fun retryConnection(username: String, password: String) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            connectToMqttBroker(username, password)
+        }, 5000) // Próba ponownego połączenia po 5 sekundach
     }
 
     private fun subscribeToLocationTopic() {
@@ -126,6 +191,8 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
     }
 
     private fun handleIncomingLocationData(payload: String) {
+        Log.d("GPS", "Received payload: $payload")
+
         runOnUiThread {
             val data = payload.split(",")
 
@@ -133,21 +200,29 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
                 val latitude = data[2].toDoubleOrNull()
                 val longitude = data[3].toDoubleOrNull()
 
+                Log.d("GPS", "Parsed latitude: $latitude, longitude: $longitude")
+
                 if (latitude != null && longitude != null) {
                     lastMessageTime = System.currentTimeMillis() // Zaktualizuj czas ostatniej wiadomości
                     isFirstMessageReceived = true // Pierwsza wiadomość została odebrana
 
+                    Log.d("GPS", "Message received. lastMessageTime updated: $lastMessageTime")
+
                     // Ukryj komunikat "connection lost", jeśli przychodzi nowa lokalizacja
                     hideMessage()
+                    isDisconnected = false // Zresetuj flagę
+                    Log.d("GPS", "Connection restored, isDisconnected: $isDisconnected")
 
                     if (latitude == 99.0 && longitude == 99.0) {
                         showUnknownLocationMessage()
+                        Log.d("GPS", "Unknown location received.")
                     } else {
-                        hideMessage() // Ukryj jakikolwiek komunikat, jeśli lokalizacja jest znana
                         updateMap(latitude, longitude)
+                        Log.d("GPS", "Map updated with new location.")
                     }
                 } else {
                     showUnknownLocationMessage()
+                    Log.d("GPS", "Invalid location data.")
                 }
             }
         }
@@ -155,13 +230,20 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
     private fun checkConnectionStatus() {
         val currentTime = System.currentTimeMillis()
-        if (isFirstMessageReceived && currentTime - lastMessageTime > connectionTimeout) {
+        val timeSinceLastMessage = currentTime - lastMessageTime
+
+        Log.d("GPS", "Checking connection status. Current time: $currentTime, Last message time: $lastMessageTime, Time since last message: $timeSinceLastMessage ms, isDisconnected: $isDisconnected")
+
+        if (isFirstMessageReceived && timeSinceLastMessage > connectionTimeout) {
             if (!isDisconnected) {
                 showDisconnectedMessage()
                 isDisconnected = true
+                Log.d("GPS", "Connection lost. Showing disconnect message.")
             }
-        } else {
+        } else if (isDisconnected && timeSinceLastMessage <= connectionTimeout) {
+            hideMessage()
             isDisconnected = false
+            Log.d("GPS", "Connection restored within timeout. Hiding disconnect message.")
         }
     }
 
@@ -249,6 +331,9 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
     override fun onResume() {
         super.onResume()
+        if (::mqttClient.isInitialized && !mqttClient.state.isConnected) {
+            reconnectToMqttBroker()
+        }
         if (::mapView.isInitialized) {
             mapView.onResume()
         }
@@ -268,6 +353,7 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
         }
         mqttClient.disconnect()
         handler.removeCallbacks(checkConnectionRunnable)
+        connectivityManager.unregisterNetworkCallback(networkCallback) // Odrejestruj NetworkCallback
     }
 
     override fun onLowMemory() {
