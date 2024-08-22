@@ -331,9 +331,9 @@ class MainActivity : ComponentActivity(), OnMapReadyCallback {
 
     override fun onResume() {
         super.onResume()
-        if (::mqttClient.isInitialized && !mqttClient.state.isConnected) {
+        /*if (::mqttClient.isInitialized && !mqttClient.state.isConnected) {
             reconnectToMqttBroker()
-        }
+        }*/
         if (::mapView.isInitialized) {
             mapView.onResume()
         }
